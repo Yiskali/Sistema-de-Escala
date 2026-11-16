@@ -1,8 +1,8 @@
-# Escala Mensal de Trabalho — HU Brasil
+# Escala Mensal de Trabalho — 
 
 Ferramenta para elaborar, conferir e exportar a **escala mensal de trabalho** das equipes do HU Brasil. Há duas versões que seguem as mesmas regras: um sistema em HTML que funciona offline e planilhas Excel alternativas.
 
-## Sistema HTML (`Escala_Mensal_HU_v13.html`)
+## Sistema HTML (`Escala_Mensal.html`)
 
 É um arquivo único, que roda direto no navegador. Não precisa de instalação nem de internet, e os dados ficam salvos no próprio navegador (localStorage).
 
