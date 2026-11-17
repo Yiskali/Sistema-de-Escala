@@ -1,8 +1,8 @@
-# Escala Mensal de Trabalho — 
+# Escala Mensal de Trabalho — HU Brasil
 
 Ferramenta para elaborar, conferir e exportar a **escala mensal de trabalho** das equipes do HU Brasil. Há duas versões que seguem as mesmas regras: um sistema em HTML que funciona offline e planilhas Excel alternativas.
 
-## Sistema HTML (`Escala_Mensal.html`)
+## Sistema HTML (`index.html`)
 
 É um arquivo único, que roda direto no navegador. Não precisa de instalação nem de internet, e os dados ficam salvos no próprio navegador (localStorage).
 
@@ -12,7 +12,8 @@ Ferramenta para elaborar, conferir e exportar a **escala mensal de trabalho** da
   - 7 ou mais dias consecutivos de trabalho, contando o mês anterior;
   - Sobreaviso acima de 24h por semana (domingo a sábado);
   - mês sem DSR;
-  - Dispensa sem jornada ou em dia que não é feriado nem ponto facultativo.
+  - Dispensa sem jornada ou em dia que não é feriado nem ponto facultativo;
+  - mês com férias em que a escala não fecha a CH contratual (na 12x36, tolera até 12h de diferença).
 - **Administração:** cadastro de empregados com matrícula, cargo, especialidade, CH, vínculo e as indicações de regime de DA/SA.
 - **Feriados:** feriados e pontos facultativos por lotação.
 - **Códigos e legenda:** jornadas do POP.DGP.042, Sobreaviso (POP.DGP.039), Disponibilidade Alcançável (POP.DGP.108) e afastamentos padronizados conforme o MentorH.

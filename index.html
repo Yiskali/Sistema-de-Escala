@@ -769,6 +769,7 @@ table.quadro td.pos{background:var(--ok-bg);color:var(--ok);font-weight:bold}
           <li>Sem DSR no mês: nenhum domingo de folga precedido de sábado de folga. O POP.DGP.042 prevê ao menos um fim de semana não trabalhado por mês.</li>
           <li>Sobreaviso acima de 24h na semana (domingo a sábado).</li>
           <li>Dispensa (DISP) sem jornada escalada ou em dia que não é feriado nem ponto facultativo.</li>
+          <li>Férias no mês com saldo diferente de zero: em mês de férias, a escala deve fechar exatamente a CH contratual. Na escala 12x36 (maioria dos dias em plantão de 12h ou 24h), aceita-se diferença de até 12h, para mais ou para menos.</li>
         </ul>
         <p>Dias com afastamento, licença, DSR, SJ ou sem jornada contam como não trabalhados. A Jornada Extraordinária conta como dia trabalhado. Na lista, clique no nome do empregado para localizá-lo na escala.</p>
 
@@ -1131,11 +1132,12 @@ const Core = (function () {
 
   /* Dia trabalhado: jornada (exceto DSR) sem afastamento ou com Jornada Extraordinária */
   function trabalhado(c) { if (!c || !c.r) return false; const p = partes(c.r); return !!J[p.base] && !ehFolga(p.base) && (!p.s1 || p.s1 === 'JE'); }
+  const LIMITE_FERIAS_12X36 = 12;
   const LIMITE_SA = 24;
   const dm = (a, m, d) => { const t = new Date(a, m - 1, d); return pad(t.getDate()) + '/' + pad(t.getMonth() + 1); };
   /* Inconsistências de um empregado no mês. Semanas de domingo a sábado; a 1ª semana inclui o fim do mês anterior.
      Retorna { seq: dias a partir do 7º seguido, saDias: dias de SA em semana acima do limite, itens: [{tipo, txt}] } */
-  function inconsistencias(nome, ant, cel, a, m, mf) {
+  function inconsistencias(nome, ant, cel, a, m, mf, serv) {
     ant = ant || {}; cel = cel || {};
     const n = diasNoMes(a, m), pa = m === 1 ? a - 1 : a, pm = m === 1 ? 12 : m - 1, np = diasNoMes(pa, pm);
     const quem = nome || '(sem nome)', itens = [], seq = new Set(), saDias = new Set();
@@ -1178,6 +1180,19 @@ const Core = (function () {
       let ok = false;
       for (let d = 1; d <= n; d++) if (dow(a, m, d) === 0) { const sab = d > 1 ? cel[d - 1] : ant[np]; if (!trabalhado(cel[d]) && !trabalhado(sab)) { ok = true; break; } }
       if (!ok) itens.push({ tipo: 'dsr', txt: quem + ' não teve DSR no mês: nenhum domingo de folga precedido de sábado de folga. O POP.DGP.042 prevê ao menos um fim de semana não trabalhado por mês.' });
+    }
+    // férias no mês: a escala deve fechar a CH contratual (12x36: diferença de até 12h)
+    if (serv && serv.ch) {
+      const q = quadro(serv, cel, a, m, mf);
+      if (q.fe > 0 && q.saldo !== null) {
+        let tot = 0, pl = 0;
+        for (let d = 1; d <= n; d++) { const b = partes((cel[d] || {}).r).base; if (b && J[b] && !ehFolga(b)) { tot++; if (J[b].ch >= 12) pl++; } }
+        const p12 = tot > 0 && pl * 2 >= tot, lim = p12 ? LIMITE_FERIAS_12X36 : 0;
+        const sd = (q.saldo > 0 ? '+' : '') + q.saldo + 'h';
+        if (Math.abs(q.saldo) > lim) itens.push({ tipo: 'ferias', txt: p12
+          ? quem + ' tem férias no mês e a escala ficou com saldo de ' + sd + '. Na escala 12x36, a diferença em mês de férias pode ser de até ' + LIMITE_FERIAS_12X36 + 'h, para mais ou para menos.'
+          : quem + ' tem férias no mês e a escala ficou com saldo de ' + sd + '. Em mês de férias, a escala deve fechar exatamente a CH contratual, sem horas a mais nem a menos.' });
+      }
     }
     return { seq, saDias, dispDias, itens };
   }
@@ -1448,7 +1463,7 @@ if (typeof module !== 'undefined') module.exports = Core;
   function alertas(s, cel) {
     const a = S.ano, m = S.mes, pa = m === 1 ? a - 1 : a, pm = m === 1 ? 12 : m - 1;
     const ant = (S.escala[pa + '-' + C.pad(pm)] || {})[s.id] || {};
-    const r = C.inconsistencias(s.nome, ant, cel, a, m, C.mapaFeriados(S.feriados));
+    const r = C.inconsistencias(s.nome, ant, cel, a, m, C.mapaFeriados(S.feriados), s);
     return { seq: r.seq, sa: r.saDias, disp: r.dispDias, itens: r.itens, txt: r.itens.map(x => x.txt) };
   }
   let incLista = [];
@@ -2305,7 +2320,7 @@ if (typeof module !== 'undefined') module.exports = Core;
       catch (x) { toast('Este arquivo não é um backup válido da escala.', 'erro'); return; }
       confirma('Restaurar backup', 'O backup substitui todos os dados atuais deste navegador.', 'Restaurar', false).then(ok => {
         if (!ok) return;
-        const painelAtual = S.painel; S = normaliza(o); if (S.painel === null) S.painel = painelAtual; desfazer = []; refazer = []; desenhaLogo(); sel = null; salvar(); desenhaEstado(); infoBackup(); toast('Backup restaurado.', 'ok');
+        const painelAtual = S.painel; S = normaliza(o); if (S.painel === null) S.painel = painelAtual; desfazer = []; refazer = []; desenhaLogo(); sel = null; salvar(); desenhaEstado(); infoBackup(); vai(document.body.dataset.v || 'escala'); toast('Backup restaurado.', 'ok');
       });
     };
     r.readAsText(f); e.target.value = '';
