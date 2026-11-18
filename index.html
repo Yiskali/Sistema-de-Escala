@@ -702,7 +702,7 @@ table.quadro td.pos{background:var(--ok-bg);color:var(--ok);font-weight:bold}
           <li>Na aba <button class="lnk aj-l" data-ir="servidores">Administração</button>, preencha <strong>Nome do HU</strong>, <strong>Lotação</strong> e <strong>Ano da escala</strong>. O ano vale para todos os meses.</li>
           <li>Em <strong>Regimes existentes na unidade</strong>, marque Disponibilidade Alcançável (DA) e Sobreaviso (SA) somente se a unidade tiver esses regimes. Desmarcado, o regime não aparece no lançamento, nos totais nem no quadro.</li>
           <li>Inclua os empregados em <strong>Adicionar empregado</strong> ou em <strong>Colar lista do Excel</strong>. Na lista colada, use uma linha por empregado, nesta ordem: Nome, Matrícula SIAPE, Cargo, Registro Conselho, Vínculo, CH semanal e Especialidade.</li>
-          <li>Escolha o cargo na lista e, se houver, informe a especialidade. Com os regimes marcados, indique se o empregado está no regime de DA ou de SA (informativo).</li>
+          <li>Escolha o cargo na lista e, se houver, informe a especialidade. Com os regimes marcados, informe em <strong>CH conv. em DA</strong> quantas horas semanais da CH contratual foram convertidas em Disponibilidade Alcançável (até 50%; cada 1h vira 3h de DA) e indique se o empregado está no regime de SA (informativo).</li>
         </ol>
         <p>A matrícula SIAPE é necessária para o arquivo para o MentorH. A CH semanal define a CH Contratual do mês. Sem uma delas, o nome do empregado aparece na escala com o triângulo âmbar de cadastro incompleto. Para ver todos os dados de cadastro na grade, use o botão <strong>Cadastro</strong>, na barra da escala.</p>
 
@@ -769,6 +769,7 @@ table.quadro td.pos{background:var(--ok-bg);color:var(--ok);font-weight:bold}
           <li>Sem DSR no mês: nenhum domingo de folga precedido de sábado de folga. O POP.DGP.042 prevê ao menos um fim de semana não trabalhado por mês.</li>
           <li>Sobreaviso acima de 24h na semana (domingo a sábado).</li>
           <li>Dispensa (DISP) sem jornada escalada ou em dia que não é feriado nem ponto facultativo.</li>
+          <li>Disponibilidade Alcançável: CH convertida acima de 50% da CH contratual; DA na escala sem CH convertida no cadastro; DA escalada diferente da DA contratual do mês, para mais ou para menos; escala presencial somada à DA (contada a 1/3) acima da CH contratual; DA em dia com jornada regular (POP.DGP.108, item 6.6).</li>
           <li>Férias no mês com saldo diferente de zero: em mês de férias, a escala deve fechar exatamente a CH contratual. Na escala 12x36 (maioria dos dias em plantão de 12h ou 24h), aceita-se diferença de até 12h, para mais ou para menos.</li>
         </ul>
         <p>Dias com afastamento, licença, DSR, SJ ou sem jornada contam como não trabalhados. A Jornada Extraordinária conta como dia trabalhado. Na lista, clique no nome do empregado para localizá-lo na escala.</p>
@@ -847,6 +848,8 @@ table.quadro td.pos{background:var(--ok-bg);color:var(--ok);font-weight:bold}
             <thead><tr><th scope="col" style="width:190px">Coluna</th><th scope="col">O que mostra</th></tr></thead>
             <tbody>
               <tr><td><strong>CH Contratual</strong></td><td>Carga horária contratual do mês.</td></tr>
+              <tr><td><strong>CH Contratual Presencial</strong></td><td>Parte da CH contratual cumprida de forma presencial: CH contratual menos as horas convertidas em DA. Só aparece quando a unidade tem o regime de DA.</td></tr>
+              <tr><td><strong>CH Contratual DA</strong></td><td>Disponibilidade Alcançável prevista no contrato para o mês: horas semanais convertidas × 3, na proporção do mês. Ex.: 24h semanais com 12h convertidas = 12h presenciais + 36h de DA por semana.</td></tr>
               <tr><td><strong>CH Escala Regular</strong></td><td>Horas das jornadas regulares do mês.</td></tr>
               <tr><td><strong>CH JE</strong></td><td>Horas de Jornada Extraordinária. A coluna fica oculta até ser ativada em <strong>Exibir › Coluna CH JE (Jornada Extraordinária)</strong>. Ao lançar JE, o sistema avisa que a coluna pode ser ativada.</td></tr>
               <tr><td><strong>CH Escala DA</strong></td><td>Tempo total de Disponibilidade Alcançável escalado. Ex.: DA das 6h às 12h = 6h nesta coluna.</td></tr>
@@ -1069,6 +1072,7 @@ const Core = (function () {
   const fim = (r, c) => r === c || r.endsWith('-' + c);
 
   /* Quadro de controle de frequência de um servidor no mês. cel = {dia: {r, x}} */
+  const arred = v => Math.round(v * 100) / 100;
   function quadro(serv, cel, a, m, mf) {
     const n = diasNoMes(a, m);
     const q = { esc: 0, je: 0, da: 0, daAb: 0, sa: 0, lic: 0, fe: 0, af: 0, acch: 0, ft: 0 };
@@ -1090,6 +1094,10 @@ const Core = (function () {
     q.cons = q.esc + q.daAb;                                  // CH Escala Regular + horas abonadas da DA
     q.contr = chContratual(serv.ch, a, m, mf);
     q.saldo = q.contr === null ? null : q.cons - q.contr;
+    // CH contratual dividida entre presencial e DA (conversão de até 50%, 1h = 3h de DA)
+    const conv = Math.max(0, +serv.daConv || 0);
+    if (q.contr === null) { q.contrP = null; q.contrDA = null; }
+    else { const fr = serv.ch ? Math.min(conv, serv.ch) / serv.ch : 0; q.contrDA = arred(q.contr * fr * 3); q.contrP = arred(q.contr * (1 - fr)); }
     return q;
   }
 
@@ -1138,6 +1146,7 @@ const Core = (function () {
   /* Inconsistências de um empregado no mês. Semanas de domingo a sábado; a 1ª semana inclui o fim do mês anterior.
      Retorna { seq: dias a partir do 7º seguido, saDias: dias de SA em semana acima do limite, itens: [{tipo, txt}] } */
   function inconsistencias(nome, ant, cel, a, m, mf, serv) {
+    let daDias = [];
     ant = ant || {}; cel = cel || {};
     const n = diasNoMes(a, m), pa = m === 1 ? a - 1 : a, pm = m === 1 ? 12 : m - 1, np = diasNoMes(pa, pm);
     const quem = nome || '(sem nome)', itens = [], seq = new Set(), saDias = new Set();
@@ -1181,6 +1190,18 @@ const Core = (function () {
       for (let d = 1; d <= n; d++) if (dow(a, m, d) === 0) { const sab = d > 1 ? cel[d - 1] : ant[np]; if (!trabalhado(cel[d]) && !trabalhado(sab)) { ok = true; break; } }
       if (!ok) itens.push({ tipo: 'dsr', txt: quem + ' não teve DSR no mês: nenhum domingo de folga precedido de sábado de folga. O POP.DGP.042 prevê ao menos um fim de semana não trabalhado por mês.' });
     }
+    // Disponibilidade Alcançável: conversão contratual (Norma 4/2023 e POP.DGP.108)
+    if (serv) {
+      const conv = +serv.daConv || 0, q = quadro(serv, cel, a, m, mf), daIni = [];
+      for (let d = 1; d <= n; d++) { const c = cel[d] || {}; if (c.x && X[c.x] && X[c.x].t === 'DA' && c.r && J[partes(c.r).base] && !ehFolga(partes(c.r).base)) daIni.push(d); }
+      const f1 = v => String(Math.round(v * 10) / 10).replace('.', ',') + 'h';
+      if (conv > 0 && serv.ch && conv > serv.ch / 2) itens.push({ tipo: 'da', txt: quem + ' tem ' + conv + 'h semanais convertidas em DA, acima do limite de 50% da CH contratual (' + (serv.ch / 2) + 'h).' });
+      if (!conv && q.da > 0) itens.push({ tipo: 'da', txt: quem + ' tem Disponibilidade Alcançável na escala, mas o cadastro não informa a CH semanal convertida em DA.' });
+      if (conv > 0 && q.contrDA !== null && Math.abs(q.da - q.contrDA) > 0.5) itens.push({ tipo: 'da', txt: quem + ' tem ' + f1(q.da) + ' de DA na escala, mas a DA contratual do mês é de ' + f1(q.contrDA) + ' (' + conv + 'h semanais convertidas × 3).' });
+      if (q.da > 0 && q.contr !== null && q.cons - q.contr > 0.5) itens.push({ tipo: 'da', txt: quem + ': a escala presencial somada à DA (contada a 1/3) dá ' + f1(q.cons) + ', acima da CH contratual de ' + f1(q.contr) + '. Isso descaracteriza o regime de DA.' });
+      if (daIni.length) itens.push({ tipo: 'da', dias: daIni, txt: quem + ': DA lançada em dia com jornada regular (dia ' + daIni.join(', ') + '). Em regra, a DA deve começar em dia sem jornada regular (POP.DGP.108, item 6.6).' });
+      daDias = daIni;
+    }
     // férias no mês: a escala deve fechar a CH contratual (12x36: diferença de até 12h)
     if (serv && serv.ch) {
       const q = quadro(serv, cel, a, m, mf);
@@ -1194,7 +1215,7 @@ const Core = (function () {
           : quem + ' tem férias no mês e a escala ficou com saldo de ' + sd + '. Em mês de férias, a escala deve fechar exatamente a CH contratual, sem horas a mais nem a menos.' });
       }
     }
-    return { seq, saDias, dispDias, itens };
+    return { seq, saDias, dispDias, daDias, itens };
   }
 
   function pascoa(y) {
@@ -1290,7 +1311,7 @@ if (typeof module !== 'undefined') module.exports = Core;
   }
   function normaliza(o) {
     const s = Object.assign(novoEstado(), o);
-    (s.servidores || []).forEach(x => { x.cargo = casaCargo(x.cargo); delete x.intervalo; if (x.especialidade === undefined) x.especialidade = ''; x.sa = !!x.sa; x.da = !!x.da; });
+    (s.servidores || []).forEach(x => { x.cargo = casaCargo(x.cargo); delete x.intervalo; if (x.especialidade === undefined) x.especialidade = ''; x.sa = !!x.sa; x.da = !!x.da; if (x.daConv === undefined) x.daConv = ''; x.daConv = x.daConv === '' ? '' : +x.daConv || ''; if (x.daConv) x.da = true; });
     Object.values(s.escala || {}).forEach(em => Object.values(em || {}).forEach(dias => Object.values(dias || {}).forEach(c => { if (c && c.r) c.r = c.r.replace(/-(DISF|DISPF|DisF|DisPF)$/, '-DISP'); })));
     if (!s.ultimoBackupTs && s.ultimoBackup) { const m = /^(\d\d)\/(\d\d)\/(\d{4}) (\d\d):(\d\d)/.exec(s.ultimoBackup); if (m) s.ultimoBackupTs = new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]).getTime(); }
     return s;
@@ -1418,13 +1439,13 @@ if (typeof module !== 'undefined') module.exports = Core;
   let sel = null, visiveis = [], desfazer = [], refazer = [], area = null, arrastando = false, enchendo = null;
   const mf = () => C.mapaFeriados(S.feriados);
   const gw = $('gridwrap'), G = $('grade'), dg = $('digita');
-  const QD = [['contr', 'CH Contratual', '#8FB1EA'], ['esc', 'CH Escala Regular', '#2E9E48'], ['je', 'CH JE', '#C0CA33'], ['da', 'CH Escala DA', '#C77618'], ['sa', 'CH Escala SA', '#C9A53A'], ['cons', 'CH Escala Regular e DA', '#F2701D'], ['saldo', 'Saldo', '#FFFFFF'],
+  const QD = [['contr', 'CH Contratual', '#8FB1EA'], ['contrP', 'CH Contratual Presencial', '#A9C4EF'], ['contrDA', 'CH Contratual DA', '#E3B27A'], ['esc', 'CH Escala Regular', '#2E9E48'], ['je', 'CH JE', '#C0CA33'], ['da', 'CH Escala DA', '#C77618'], ['sa', 'CH Escala SA', '#C9A53A'], ['cons', 'CH Escala Regular e DA', '#F2701D'], ['saldo', 'Saldo', '#FFFFFF'],
     ['lic', 'LM/LP/L', '#8FB1EA'], ['fe', 'FE', '#E8776E'], ['af', 'AF', '#5DB075'], ['acch', 'AC/CH', '#2E9E48'], ['ft', 'Faltas', '#E57373']];
-  const QT = { contr: 'Carga horária contratual do mês', esc: 'Horas das jornadas regulares do mês (sem a Jornada Extraordinária)', je: 'Horas de Jornada Extraordinária (não entram na escala regular nem no saldo)',
+  const QT = { contr: 'Carga horária contratual do mês', contrP: 'Parte da CH contratual cumprida de forma presencial (CH contratual − horas convertidas em DA)', contrDA: 'Disponibilidade Alcançável contratual do mês: horas semanais convertidas × 3, na proporção do mês', esc: 'Horas das jornadas regulares do mês (sem a Jornada Extraordinária)', je: 'Horas de Jornada Extraordinária (não entram na escala regular nem no saldo)',
     da: 'Tempo total de Disponibilidade Alcançável escalado', sa: 'Horas de sobreaviso (não entram no saldo)', cons: 'CH Escala Regular + horas abonadas da DA',
     saldo: 'CH Escala Regular (e DA abonada, se houver) − CH Contratual',
     lic: 'Dias de licença (LM, LP, L)', fe: 'Dias de férias', af: 'Dias com AB, AC, CH, AT, AFHU, FE, RC, 2MP ou AFIN', acch: 'Dias com AC ou CH', ft: 'Dias com falta (FT e FTIN)' };
-  const QOC = 7;   // a partir desta coluna: Quadro de Ocorrências
+  const QOC = 9;   // a partir desta coluna: Quadro de Ocorrências
   const TOT = [['mat', 'Matutinos no dia'], ['vesp', 'Vespertinos no dia'], ['diu', 'Plantão Diurno'], ['not', 'Plantão Noturno'], ['aus', 'Ausentes (afast./férias)'], ['trab', 'Total trabalhando hoje'], ['da', 'Empregados em DA'], ['sa', 'Empregados em SA']];
 
   function servidoresDoMes() {
@@ -1449,8 +1470,8 @@ if (typeof module !== 'undefined') module.exports = Core;
     if (!C.CH_TAB[s.ch]) p.push('Sem CH semanal: o quadro de frequência não é calculado');
     return p;
   }
-  const QW = [68, 64, 46, 58, 58, 84, 56, 60, 40, 40, 52, 52];
-  const regOk = k => !(((k === 'da' || k === 'cons') && !S.temDA) || (k === 'sa' && !S.temSA) || (k === 'je' && !S.qJE));   // sem DA não há consolidado; CH JE só quando o gestor ativa
+  const QW = [68, 76, 70, 64, 46, 58, 58, 84, 56, 60, 40, 40, 52, 52];
+  const regOk = k => !(((k === 'da' || k === 'cons' || k === 'contrP' || k === 'contrDA') && !S.temDA) || (k === 'sa' && !S.temSA) || (k === 'je' && !S.qJE));   // sem DA não há consolidado; CH JE só quando o gestor ativa
   const qdReg = () => QD.filter(q => regOk(q[0]));
   function qVis() {
     const v = []; QD.forEach((q, i) => { if (regOk(q[0]) && (i < QOC ? S.qFreq : S.qOcor)) v.push(i); });
@@ -1464,7 +1485,7 @@ if (typeof module !== 'undefined') module.exports = Core;
     const a = S.ano, m = S.mes, pa = m === 1 ? a - 1 : a, pm = m === 1 ? 12 : m - 1;
     const ant = (S.escala[pa + '-' + C.pad(pm)] || {})[s.id] || {};
     const r = C.inconsistencias(s.nome, ant, cel, a, m, C.mapaFeriados(S.feriados), s);
-    return { seq: r.seq, sa: r.saDias, disp: r.dispDias, itens: r.itens, txt: r.itens.map(x => x.txt) };
+    return { seq: r.seq, sa: r.saDias, disp: r.dispDias, da: new Set(r.daDias || []), itens: r.itens, txt: r.itens.map(x => x.txt) };
   }
   let incLista = [];
   function infoDias() {
@@ -1502,7 +1523,7 @@ if (typeof module !== 'undefined') module.exports = Core;
       t += '<tr><th class="fixo nome" scope="row" data-s="' + si + '" title="' + h(dica) + '"><span class="nm"><span>' + (h(s.nome) || '(sem nome)') + '<small class="mat"> · ' + (h(s.matricula) || 'sem matrícula') + '</small></span>' + (pen.length ? '<span class="wn" role="img" tabindex="0" data-tip="' + h(pen.join('\n')) + '" aria-label="Cadastro incompleto: ' + h(pen.join('. ')) + '">' + ico('warn') + '</span>' : '') + (al.txt.length ? '<span class="ic-al" role="img" tabindex="0" data-tip="' + h(al.txt.join('\n')) + '" aria-label="Inconsistência: ' + h(al.txt.join(' ')) + '"></span>' : '') + '</span><span class="sub">' + h(sub) + tags + (s.cargo ? ' · ' + h(s.cargo) : '') + '</span>' + (s.especialidade ? '<span class="sub esp">' + h(s.especialidade) + '</span>' : '') + '</th>'
         + '<td class="cad">' + h(s.matricula) + '</td><td class="cad" title="' + h(s.cargo) + '">' + h(s.cargo) + '</td><td class="cad">' + h(s.registro) + '</td><td class="cad">' + h(s.vinculo) + '</td><td class="cad">' + h(s.ch) + '</td><td class="cad" title="' + h(s.especialidade) + '">' + h(s.especialidade) + '</td>';
       info.forEach(i => {
-        const c = cel[i.d], tt = [al.seq.has(i.d) && '7º dia seguido de trabalho ou mais (DSR após o 6º dia)', al.sa.has(i.d) && 'Semana com mais de ' + C.LIMITE_SA + 'h de sobreaviso', al.disp.has(i.d) && 'Dispensa sem jornada ou fora de feriado/ponto facultativo'].filter(Boolean);
+        const c = cel[i.d], tt = [al.seq.has(i.d) && '7º dia seguido de trabalho ou mais (DSR após o 6º dia)', al.sa.has(i.d) && 'Semana com mais de ' + C.LIMITE_SA + 'h de sobreaviso', al.disp.has(i.d) && 'Dispensa sem jornada ou fora de feriado/ponto facultativo', al.da.has(i.d) && 'DA em dia com jornada regular'].filter(Boolean);
         t += '<td class="c ' + i.cls + (tt.length ? ' al' : '') + '" data-s="' + si + '" data-d="' + i.d + '" style="' + corFundo(c) + '"' + (tt.length ? ' title="' + h(tt.join('\n')) + '"' : '') + '>' + htmlCel(c) + '</td>';
       });
       QD.forEach((d, i) => {
@@ -1570,7 +1591,7 @@ if (typeof module !== 'undefined') module.exports = Core;
     const s = visiveis.find(x => x.id === cs.value);
     if (!s) { $('cs-corpo').innerHTML = '<p class="dica" style="margin-top:12px">Nenhum empregado cadastrado.</p>'; return; }
     const cel = e[s.id] || {}, q = C.quadro(s, cel, S.ano, S.mes, F);
-    let t = '<div class="cs-q">' + [['CH Contratual', fmt(q.contr)], ['CH Escala Regular', fmt(q.esc)]].concat(S.qJE ? [['CH JE', fmt(q.je)]] : [], S.temDA ? [['CH Escala DA', fmt(q.da)]] : [], S.temSA ? [['CH Escala SA', fmt(q.sa)]] : [], S.temDA ? [['CH Escala Regular e DA', fmt(q.cons)]] : [], [['Saldo', fmtSaldo(q.saldo)]]).map(x => '<div>' + x[0] + '<b>' + (x[1] || '–') + '</b></div>').join('') + '</div>';
+    let t = '<div class="cs-q">' + [['CH Contratual', fmt(q.contr)]].concat(S.temDA ? [['CH Contratual Presencial', fmt(q.contrP)], ['CH Contratual DA', fmt(q.contrDA)]] : [], [['CH Escala Regular', fmt(q.esc)]], S.qJE ? [['CH JE', fmt(q.je)]] : [], S.temDA ? [['CH Escala DA', fmt(q.da)]] : [], S.temSA ? [['CH Escala SA', fmt(q.sa)]] : [], S.temDA ? [['CH Escala Regular e DA', fmt(q.cons)]] : [], [['Saldo', fmtSaldo(q.saldo)]]).map(x => '<div>' + x[0] + '<b>' + (x[1] || '–') + '</b></div>').join('') + '</div>';
     info.forEach(i => {
       const c = cel[i.d];
       t += '<div class="cs-dia ' + i.cls + '"><span class="d">' + i.d + '</span><span class="w">' + C.DIAS[i.w] + '</span>'
@@ -2135,13 +2156,13 @@ if (typeof module !== 'undefined') module.exports = Core;
   function avisoServ(s) { const p = pendencias(s); return p.length ? ' <span class="wn" role="img" aria-label="' + h(p.join('. ')) + '" title="' + h(p.join('\n')) + '">' + ico('warn') + '</span>' : ''; }
   function desenhaServ() {
     $('f-hu').value = S.hu; $('f-lot').value = S.lotacao; $('f-ano').value = S.ano; $('f-da').checked = !!S.temDA; $('f-sa').checked = !!S.temSA; desenhaLogo();
-    let t = '<thead><tr><th scope="col">Nº</th><th scope="col" style="min-width:200px">Nome completo</th><th scope="col" style="width:100px">Matrícula SIAPE</th><th scope="col" style="width:190px">Cargo</th><th scope="col" style="width:130px">Especialidade</th><th scope="col" style="width:115px">Registro Conselho</th><th scope="col" style="width:105px">Vínculo</th><th scope="col" style="width:78px">CH semanal</th>' + (S.temDA ? '<th scope="col" style="width:80px" title="Indica se o empregado está no regime de Disponibilidade Alcançável (informativo)">Disponib. (DA)</th>' : '') + (S.temSA ? '<th scope="col" style="width:80px" title="Indica se o empregado está no regime de Sobreaviso (informativo)">Sobreaviso (SA)</th>' : '') + '<th scope="col"><span style="position:absolute;left:-999em">Ações</span></th></tr></thead><tbody>';
+    let t = '<thead><tr><th scope="col">Nº</th><th scope="col" style="min-width:200px">Nome completo</th><th scope="col" style="width:100px">Matrícula SIAPE</th><th scope="col" style="width:190px">Cargo</th><th scope="col" style="width:130px">Especialidade</th><th scope="col" style="width:115px">Registro Conselho</th><th scope="col" style="width:105px">Vínculo</th><th scope="col" style="width:78px">CH semanal</th>' + (S.temDA ? '<th scope="col" style="width:96px" title="Horas semanais da CH contratual convertidas em Disponibilidade Alcançável (até 50%; cada 1h vira 3h de DA)">CH conv. em DA (h/sem)</th>' : '') + (S.temSA ? '<th scope="col" style="width:80px" title="Indica se o empregado está no regime de Sobreaviso (informativo)">Sobreaviso (SA)</th>' : '') + '<th scope="col"><span style="position:absolute;left:-999em">Ações</span></th></tr></thead><tbody>';
     S.servidores.forEach((s, i) => {
       const n = 'do empregado ' + (i + 1);
       t += '<tr data-i="' + i + '"><td class="n">' + (i + 1) + avisoServ(s) + '</td><td><input data-c="nome" aria-label="Nome ' + n + '" value="' + h(s.nome) + '"></td><td><input data-c="matricula" inputmode="numeric" aria-label="Matrícula SIAPE ' + n + '" class="' + (String(s.matricula || '').trim() ? '' : 'falta') + '" value="' + h(s.matricula) + '"></td><td><select data-c="cargo" aria-label="Cargo ' + n + '">' + [''].concat(CARGOS, s.cargo && !CARGOS.includes(s.cargo) ? [s.cargo] : []).map(v => '<option' + (v === (s.cargo || '') ? ' selected' : '') + '>' + h(v) + '</option>').join('') + '</select></td><td><input data-c="especialidade" aria-label="Especialidade ' + n + '" placeholder="Ex.: UTI, Cardiologia" value="' + h(s.especialidade) + '"></td><td><input data-c="registro" aria-label="Registro no conselho ' + n + '" value="' + h(s.registro) + '"></td>'
         + '<td><select data-c="vinculo" aria-label="Vínculo ' + n + '">' + [''].concat(VINC).map(v => '<option' + (v === (s.vinculo || '') ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></td>'
         + '<td><select data-c="ch" aria-label="CH semanal ' + n + '" class="' + (C.CH_TAB[s.ch] ? '' : 'falta') + '">' + [''].concat(CHS).map(v => '<option' + (String(v) === String(s.ch || '') ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></td>'
-        + (S.temDA ? '<td><select data-c="da" aria-label="Regime de Disponibilidade Alcançável ' + n + '"><option value=""' + (s.da ? '' : ' selected') + '>Não</option><option value="1"' + (s.da ? ' selected' : '') + '>Sim</option></select></td>' : '')
+        + (S.temDA ? '<td><select data-c="daConv" aria-label="CH semanal convertida em Disponibilidade Alcançável ' + n + '" class="' + (s.da && !s.daConv ? 'falta' : '') + '" title="' + (s.daConv ? s.daConv + 'h convertidas = ' + (s.daConv * 3) + 'h de DA por semana; ' + ((+s.ch || 0) - s.daConv) + 'h presenciais' : 'Fora do regime de DA') + '">' + [''].concat(Array.from({ length: Math.floor((+s.ch || 0) / 2) }, (_, k) => k + 1), s.daConv > (+s.ch || 0) / 2 ? [s.daConv] : []).map(v => '<option value="' + v + '"' + (String(v) === String(s.daConv || '') ? ' selected' : '') + '>' + (v === '' ? 'Não' : v + 'h') + '</option>').join('') + '</select></td>' : '')
         + (S.temSA ? '<td><select data-c="sa" aria-label="Regime de Sobreaviso ' + n + '"><option value=""' + (s.sa ? '' : ' selected') + '>Não</option><option value="1"' + (s.sa ? ' selected' : '') + '>Sim</option></select></td>' : '')
         + '<td class="ac"><button class="btn ico" data-menu="menu-serv" aria-haspopup="true" aria-expanded="false" aria-label="Ações ' + n + '">' + ico('mais3') + '</button></td></tr>';
     });
@@ -2172,7 +2193,7 @@ if (typeof module !== 'undefined') module.exports = Core;
     const tr = e.target.closest('tr[data-i]'); if (!tr) return; const i = +tr.dataset.i, s = S.servidores[i], c = e.target.dataset.c; if (!c) return;
     if (c === 'ch') s.ch = e.target.value ? +e.target.value : '';
     else if (c === 'sa') s.sa = !!e.target.value;
-    else if (c === 'da') s.da = !!e.target.value;
+    else if (c === 'daConv') { s.daConv = e.target.value ? +e.target.value : ''; s.da = !!s.daConv; desenhaServ(); }
     else if (c === 'matricula') { s.matricula = e.target.value.replace(/\D/g, ''); e.target.value = s.matricula; }
     else s[c] = e.target.value.trim();
     if (c === 'matricula') e.target.classList.toggle('falta', !s.matricula);
